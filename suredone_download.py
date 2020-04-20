@@ -1,6 +1,7 @@
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-Suredown Download
+Suredone Download
 
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
@@ -207,7 +208,7 @@ def main(argv):
     print ("API response recieved...", end='\r')
     # If the returning json has a 'result' key with 'success' value...
     if r['result'] == 'success':
-        # Get the file name(s?) of the newly downloaded file
+        # Get the file name of the newly downloaded file
         file_name = r['export_file']
 
         # Now that we have the file name, time to download the file
@@ -239,7 +240,7 @@ def main(argv):
                 print('Saved to', save_to_file)
                 break
             else:
-                # If the api call with just the file name in the url wasn't successfull
+                # If the api call with the file name in the url wasn't successfull
                 # Increase the error count and check if error count has crossed 10 or not.
                 # More than 10 attempts with errors will end the code
                 e_count +=1
