@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.1
+@version: 1.0.2
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
@@ -122,42 +122,41 @@ import sys
 import getopt
 import platform
 import requests
-import configparser
+import yaml
 import json
 import re
 import time
 import os
 from os.path import expanduser
 
+PYTHON_VERSION = float(sys.version[:sys.version.index(' ')-2])
+
 def main(argv):
+    # Check if python version is 3.5 or higher
+    if not PYTHON_VERSION >= 3.5:
+        print ("Must use Python version 3.5 or higher!")
+        exit()
+
     #TODO: Modularize this funciton as much as possible
     # Parse arguments
-    waitTime = parseArgs(argv)
+    waitTime, configPath = parseArgs(argv)
 
     print('SureDone bulk downloader')
     print ("Wait time: {} seconds.".format(waitTime))
+    print ("Configurations path: {}.".format(configPath))
 
     # Loading configurations
-    config = configparser.ConfigParser()
-    sett_name = 'settings.ini'
-    
-    # Read the settings.ini file in the same folder as well as in ~\Appdata\Local folder
-    # Exit the script if couldn't find the settings.ini file
-    if not config.read(sett_name):
-        if platform.system() == 'Windows':
-            path = expanduser("~") + "\\AppData\\Local\\"
-            if not config.read(path + 'settings.ini'):
-                print('settings.ini not found')
-                exit()
-        else:
-            print(sett_name + ' not found')
-            exit()
+    with open(configPath, 'r') as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
     
     # Try to read the user and api_token from suredone_api set in the settings
     # Print error that the settings weren't found and exit    
     try:
-        user = config['suredone_api']['user']
-        api_token = config['suredone_api']['api_token']
+        user = config['user']
+        api_token = config['token']
     except KeyError:
         print('Not found user or api_token in suredone_api section')
         exit()
@@ -273,11 +272,13 @@ def parseArgs(argv):
             - Can be float in order to access millisecond scale
     """
     # Defining options in for command line arguments
-    options = "hw:"
-    long_options = ["wait="]
-
+    options = "hw:f:"
+    long_options = ["help", "wait=", "file="]
+    
     # Arguments
     waitTime = 15
+    configPath = 'suredone.yaml'
+    customPathFoundAndValidated = False
 
     # Extracting arguments
     try:
@@ -286,16 +287,79 @@ def parseArgs(argv):
         print ("Error in arguments!")
         print (HELP_MESSAGE)
         sys.exit()
-
     for option, value in opts:
         if option == '-h':
             print (HELP_MESSAGE)
             sys.exit()
         elif option in ("-w", "--wait"):
             waitTime = float(value)
+        elif option in ("-f", "--file"):
+            configPath = value
+            customPathFoundAndValidated = validateConfigPath(configPath)
+
+    # If custom path to config file wasn't found, search in default locations
+    if not customPathFoundAndValidated:
+        configPath = getDefaultPath()
     
-    return waitTime
+    return waitTime, configPath
+
+def validateConfigPath(configPath):
+    """
+    Function to validate the provided config file path.
+
+    Parameters
+    ----------
+        - configPath : str
+            Path to the configuration file
+    Returns
+    -------
+        - validated : bool
+            A True or False as a result of the validation of the path
+    """
+    # Check extension, must be YAML
+    if not configPath.endswith('yaml'):
+        print ("Configuration file must be .yaml extension.\nLooking for configuration file in default locations...")
+        return False
+
+    # Check if file exists
+    if not os.path.exists(configPath):
+        print ("Specified path to the configuration file is invalid.\nLooking for configuration file in default locations...")
+        return False
+    else:
+        return True
+
+def getDefaultPath():
+    """
+    Function to validate the provided config file path.
+
+    Returns
+    -------
+        - configPath : str
+            Path to the configuration file if found in the default locations
+    """
+    fileName = 'suredone.yaml'
+    # Check in current directory
+    directory = os.getcwd()
+    configPath = os.path.join(directory, fileName)
+    if os.path.exists(configPath):
+        return configPath
     
+    # Check in alternative locations
+    if sys.platform == 'win32' or sys.platform == 'win64': # Windows
+        directory = os.path.expandvars(r'%LOCALAPPDATA%')
+        configPath = os.path.join(directory, fileName)
+        if os.path.exists(configPath):
+            return configPath
+    elif sys.platform == 'linux' or sys.platform == 'linux2': # Linux
+        directory = expanduser('~')
+        configPath = os.path.join(directory, fileName)
+        if os.path.exists(configPath):
+            return configPath
+    print ("suredone.yaml config file wasn't found in default locations!\nSpecify a path to configuration file using (-f --file) argument.")
+    exit()
+
+            
+
 """ Custom Exceptions that will be caught by the script """
 class LoadingError(Exception):
     pass
