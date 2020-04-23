@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.2
+@version: 1.0.3
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
@@ -133,8 +133,67 @@ from os.path import expanduser
 
 PYTHON_VERSION = float(sys.version[:sys.version.index(' ')-2])
 
+def main(argv):
+    # Check if python version is 3.5 or higher
+    if not PYTHON_VERSION >= 3.5:
+        print ("Must use Python version 3.5 or higher!")
+        exit()
+
+    # Parse arguments
+    waitTime, configPath = parseArgs(argv)
+
+    print('SureDone bulk downloader')
+    print ("Wait time: {} seconds.".format(waitTime))
+    print ("Configurations path: {}.".format(configPath))
+
+    # Parse configuration
+    user, apiToken = loadConfig(configPath)
+
+    print ("Configuration read...", end='\r')
+    
+    # Initialize API handler object
+    sureDone = SureDone(user, apiToken, waitTime)
+
+    # Get data to send to the bulk/exports sub module
+    data = getDataForExports()
+
+    # Invoke the GET API call to bulk/exports sub module
+    exportRequestResponse = sureDone.apicall('get', 'bulk/exports', data)
+    
+    print ("API response recieved...", end='\r')
+
+    # Get download Path
+    downloadPath = getDefaultDownloadPath()
+
+    print ("Purged existing files...", end='\r')
+    
+    # If the returning json has a 'result' key with 'success' value...
+    if exportRequestResponse['result'] == 'success':
+        # Get the file name of the newly exported file
+        fileName = exportRequestResponse['export_file']
+
+        # Download and save the file
+        downloadExportedFile(fileName, downloadPath, sureDone)
+
+    # If the returning JSON wasn't successful in the first place, end the code with a generic error.
+    else:
+        print('Can not export for some reason.')
+
 def loadConfig (configPath):
-    """TODO
+    """
+    Function that parses the configuration file and reads user and apiToken variables
+
+    Parameters
+    ----------
+        - configPath : str
+            Path to the configuration file
+    
+    Returns
+    -------
+        - user : str
+            Username from the configuration file
+        - apiToken : str
+            Api authentication token from the configuration file
     """
     # Loading configurations
     with open(configPath, 'r') as stream:
@@ -153,8 +212,20 @@ def loadConfig (configPath):
         exit()
     return user, apiToken
 
-def getDownloadPath():
-    """TODO
+def getDefaultDownloadPath():
+    """
+    Function to check the operating system and determine the appropriate 
+    download path for the export file based on operating system.
+
+    This funciton also purges the whole directory with any previous export files.
+    
+    Returns
+    -------
+        - downloadPath : str
+            A valid path that points to the diretory where the file should be downloaded
+    TODO:
+    -----
+        - Implement preserve argument. If preserve is activated, don't purge the files
     """
     # If the platform is windows, set the download path to the current user's Downloads folder
     if sys.platform == 'win32' or sys.platform == 'win64': # Windows
@@ -179,7 +250,13 @@ def getDownloadPath():
         return downloadPath
 
 def getDataForExports():
-    """TODO
+    """
+    Function that prepares the data that will be sent to the bulk/exports sub module.
+    
+    Returns
+    -------
+        - data : dict
+            Dictionary that contains all the necessary key-value pairs that need to be sent to the Suredone API's bulk/exports sub module.
     """
     # Prepare to send api call. Create the SureDone object and create the data dict
     data = {}
@@ -194,7 +271,7 @@ def getDataForExports():
     seen_add = seen.add
     field_list = list()
 
-    # Iterate through each field and make sure there isn't a duplicate present
+    # Iterate through each field and make sure a duplicate isn't present
     for element in t:
         k = element
         if k not in seen:
@@ -205,7 +282,18 @@ def getDataForExports():
     data['fields'] = ','.join(field_list)
 
 def downloadExportedFile(fileName, downloadPath, sureDone):
-    """TODO
+    """
+    Fucntion that is invoked once the file is exported and is ready to download.
+    Invokes the download stream, reads it and write to the file in the decided download directory.
+
+    Parameters
+    ----------
+        - fileName : str
+            Name of the file that is being saved.
+        - downloadPath : str
+            Path to the download directory.
+        - sureDone : SureDone object
+            Object of the SureDone API handler class
     """
     errorCount=0
     while True:
@@ -242,52 +330,6 @@ def downloadExportedFile(fileName, downloadPath, sureDone):
                 time.sleep(30)
                 continue
 
-def main(argv):
-    # Check if python version is 3.5 or higher
-    if not PYTHON_VERSION >= 3.5:
-        print ("Must use Python version 3.5 or higher!")
-        exit()
-
-    # Parse arguments
-    waitTime, configPath = parseArgs(argv)
-
-    print('SureDone bulk downloader')
-    print ("Wait time: {} seconds.".format(waitTime))
-    print ("Configurations path: {}.".format(configPath))
-
-    # Parse configuration
-    user, apiToken = loadConfig(configPath)
-
-    print ("Configuration read...", end='\r')
-    
-    # Initialize API handler object
-    sureDone = SureDone(user, apiToken, waitTime)
-
-    # Get data to send to the bulk/exports sub module
-    data = getDataForExports()
-
-    # Invoke the GET API call to bulk/exports sub module
-    exportRequestResponse = sureDone.apicall('get', 'bulk/exports', data)
-    
-    print ("API response recieved...", end='\r')
-
-    # Get download Path
-    downloadPath = getDownloadPath()
-
-    print ("Purged existing files...", end='\r')
-    
-    # If the returning json has a 'result' key with 'success' value...
-    if exportRequestResponse['result'] == 'success':
-        # Get the file name of the newly exported file
-        fileName = exportRequestResponse['export_file']
-
-        # Download and save the file
-        downloadExportedFile(fileName, downloadPath, sureDone)
-
-    # If the returning JSON wasn't successful in the first place, end the code with a generic error.
-    else:
-        print('Can not export for some reason.')
-
 def parseArgs(argv):
     """
     Function that parses the arguments sent from the command line 
@@ -295,7 +337,7 @@ def parseArgs(argv):
 
     Parameters
     ----------
-        -argv : str
+        - argv : str
             Arguments sent through the command line
     
     Returns
@@ -332,7 +374,7 @@ def parseArgs(argv):
 
     # If custom path to config file wasn't found, search in default locations
     if not customPathFoundAndValidated:
-        configPath = getDefaultPath()
+        configPath = getDefaultConfigPath()
     
     return waitTime, configPath
 
@@ -361,7 +403,7 @@ def validateConfigPath(configPath):
     else:
         return True
 
-def getDefaultPath():
+def getDefaultConfigPath():
     """
     Function to validate the provided config file path.
 
@@ -393,8 +435,6 @@ def getDefaultPath():
         exit()
     print ("suredone.yaml config file wasn't found in default locations!\nSpecify a path to configuration file using (-f --file) argument.")
     exit()
-
-            
 
 """ Custom Exceptions that will be caught by the script """
 class LoadingError(Exception):
