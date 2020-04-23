@@ -85,6 +85,7 @@ Example:
     $ python rearrange.py -file [source.csv] --output_file [output.csv] --max_iterations 1000
 
 Todo:
+    - Every exit must change to a safe exit where the log file is told why the script exited
 """
 
 # Help message
@@ -128,28 +129,103 @@ import re
 import time
 import os
 from os.path import expanduser
+from datetime import datetime
 
 # TODO: EVERY PRINT STATEMENT NEEDS TO GO
 
 PYTHON_VERSION = float(sys.version[:sys.version.index(' ')-2])
 
+def getCurrentTimestamp():
+    """
+    Simple function that calculates the current time stamp and simply formats it as a string and returns.
+    Mainly aimed for logging.
+
+    Returns
+    -------
+        - timestamp : str
+            A formatted string of current time
+    """
+    return datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+def writeLog(message, logFilePath, verbose=False, severity='normal', data=None):
+    """
+    Function that writes out to the log file and console based on verbose.
+    The function will change behavior slightly based on severity of the message.
+
+    Parameters
+    ----------
+        - message : str
+            Message to write
+        - logFilePath : str
+            Path that points to the log file
+        - verbose : bool
+            Modifier to print results out to the console or not.
+        - severity : str
+            Defines what the message is related to. Is the message:
+                - [N] : A 'normal' notification
+                - [W] : A 'warning'
+                - [E] : An 'error'
+                - [!] : A 'code-breaker error' (errors that are followed by the script exitting)
+        - data : dict
+            A dictionary that will contain additional information when a code-breaker error occurs
+            Attributes:
+                - code : error code
+                    1 : Generic error, only print the message.
+                    2 : An API call was not successful. Response object attached.
+                    3 : YAML loading error. Error object attached
+                - response : str
+                    JSON-like str - the response recieved from the request in conern at the point of error.
+                - error : str
+                    String produced by exception if an exception occured
+    """
+    if not os.path.exists(logFilePath):
+        logFile = open(logFilePath, 'w')
+    else:
+        logFile = open(logFilePath, 'a')
+    
+    # Get a timestamp
+    timestamp = getCurrentTimestamp()
+
+    # Format the message based on severity
+    if severity == 'normal':
+        indicator = '[N]'
+        toWrite = indicator + '|' + timestamp + ':   ' + message
+    elif severity == 'warning':
+        indicator = '[W]'
+        toWrite = indicator + '|' + timestamp + ':   ' + message
+    elif severity == 'code-breaker':
+        indicator = '[!]'
+        toWrite = indicator + '|' + timestamp + ':   ' + message
+        
+        if data['code'] == 2: # Response recieved but unsuccessful
+            details = '\n[ErrorDetailsStart]\n' + data['response'] + '\n[ErrorDetailsEnd]'
+            toWrite = toWrite + details
+        elif data['code'] == 2: # YAML loading error
+            details = '\n[ErrorDetailsStart]\n' + data['error'] + '\n[ErrorDetailsEnd]'
+            toWrite = toWrite + details
+    
+    # Write out the message
+    logFile.write(toWrite + '\n')
+    if verbose: print(toWrite)
+
 def main(argv):
     # Check if python version is 3.5 or higher
     if not PYTHON_VERSION >= 3.5:
-        print ("Must use Python version 3.5 or higher!")
+        writeLog("Must use Python version 3.5 or higher!", logFilePath, severity='code-breaker', data={'code':1})
         exit()
 
     # Parse arguments
     waitTime, configPath = parseArgs(argv)
 
-    print('SureDone bulk downloader')
-    print ("Wait time: {} seconds.".format(waitTime))
-    print ("Configurations path: {}.".format(configPath))
+    # TODO: add more arguments data here
+    writeLog("SureDone bulk downloader initalized.", logFilePath, severity='normal')
+    writeLog("Wait time: {} seconds.".format(waitTime), logFilePath, severity='normal')
+    writeLog("Configurations path: {}.".format(configPath), logFilePath, severity='normal')
 
     # Parse configuration
     user, apiToken = loadConfig(configPath)
 
-    print ("Configuration read...", end='\r')
+    writeLog("Configuration read.", logFilePath, severity='normal')
     
     # Initialize API handler object
     sureDone = SureDone(user, apiToken, waitTime)
@@ -160,24 +236,27 @@ def main(argv):
     # Invoke the GET API call to bulk/exports sub module
     exportRequestResponse = sureDone.apicall('get', 'bulk/exports', data)
     
-    print ("API response recieved...", end='\r')
-
-    # Get download Path
-    downloadPath = getDefaultDownloadPath()
-
-    print ("Purged existing files...", end='\r')
+    writeLog("API response recieved.", logFilePath, severity='normal')
     
     # If the returning json has a 'result' key with 'success' value...
     if exportRequestResponse['result'] == 'success':
         # Get the file name of the newly exported file
         fileName = exportRequestResponse['export_file']
 
+        # Get download Path
+        downloadPath = getDefaultDownloadPath()
+
+        # TODO: This will be removed when preserve is implemented
+        writeLog("Purged existing files.", logFilePath, severity='normal')
+
         # Download and save the file
         downloadExportedFile(fileName, downloadPath, sureDone)
 
+        # TODO: safeExit(marker='execution complete')
+
     # If the returning JSON wasn't successful in the first place, end the code with a generic error.
     else:
-        print('Can not export for some reason.')
+        writeLog("Can not export for some reason.", logFilePath, severity='code-breaker', data={'code':2, 'response':exportRequestResponse})
 
 def loadConfig (configPath):
     """
@@ -200,15 +279,15 @@ def loadConfig (configPath):
         try:
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
-            print(exc)
+            writeLog("Error while loading YAML.", logFilePath, severity='code-breaker', data={'code':3, 'error':exc})
     
     # Try to read the user and api_token from suredone_api set in the settings
     # Print error that the settings weren't found and exit
     try:
         user = config['user']
         apiToken = config['token']
-    except KeyError:
-        print('Not found user or api_token in suredone_api section')
+    except KeyError as exc:
+        writeLog("Not found user or token in config file.", logFilePath, severity='code-breaker', data={'code':3, 'error':exc})
         exit()
     return user, apiToken
 
@@ -231,7 +310,6 @@ def getDefaultDownloadPath():
     if sys.platform == 'win32' or sys.platform == 'win64': # Windows
         downloadPath = os.path.expandvars(r'%USERPROFILE%')
         downloadPath = os.path.join(downloadPath, 'Downloads')
-        downloadPath = expanduser("~") + "\\Downloads\\"
         purge(downloadPath, 'SureDone_')
         return downloadPath
 
@@ -243,10 +321,6 @@ def getDefaultDownloadPath():
             purge(downloadPath, 'SureDone_')
         else:   # Create the downloads directory
             os.mkdir(downloadPath)
-        return downloadPath
-    else:
-        downloadPath = ''
-        purge('.', 'SureDone_')
         return downloadPath
 
 def getDataForExports():
@@ -303,7 +377,7 @@ def downloadExportedFile(fileName, downloadPath, sureDone):
         # If the result was successfull...
         if fileDownloadURLResponse['result'] == 'success':
             # Set the path, get the download URL of the file requested, and start a stream to download it
-            print ("Starting file download...", end='\r')
+            writeLog("Starting file download.", logFilePath, severity='normal')
             downloadedFilePath = downloadPath + 'SureDone_' + fileName
             downloadStream = requests.get(fileDownloadURLResponse['url'], stream=True)
             
@@ -313,8 +387,7 @@ def downloadExportedFile(fileName, downloadPath, sureDone):
                 for index, chunk in enumerate(downloadStream.iter_content(chunk_size=1024)):
                     if chunk:  # filter out keep-alive new chunks
                         downloadedFile.write(chunk)
-
-            print('Saved to', downloadedFilePath)
+            writeLog("Saved to " + downloadedFilePath, logFilePath, severity='normal')
             break
         else:
             # If the api call with the file name in the url wasn't successfull
@@ -322,11 +395,11 @@ def downloadExportedFile(fileName, downloadPath, sureDone):
             # More than 10 attempts with errors will end the code
             errorCount += 1
             if errorCount > 10:
-                print(fileDownloadURLResponse)
-                print('Can not download.')
+                writeLog("Can not download.", logFilePath, severity='code-breaker', data={'code':2, 'response':fileDownloadURLResponse})
+                # TODO: exit()
                 break
             else:
-                print('attempt',errorCount,fileDownloadURLResponse)
+                writeLog('Attempt ' + str(errorCount) + ' ' + str(fileDownloadURLResponse), logFilePath, severity='warning')
                 time.sleep(30)
                 continue
 
@@ -359,11 +432,13 @@ def parseArgs(argv):
     try:
         opts, args = getopt.getopt(argv, options, long_options)
     except getopt.GetoptError:
+        # Not logging here since this is a command-line feature and must be printed on console
         print ("Error in arguments!")
         print (HELP_MESSAGE)
-        sys.exit()
+        exit()
     for option, value in opts:
         if option == '-h':
+            # Not logging here since this is a command-line feature and must be printed on console
             print (HELP_MESSAGE)
             sys.exit()
         elif option in ("-w", "--wait"):
@@ -393,12 +468,12 @@ def validateConfigPath(configPath):
     """
     # Check extension, must be YAML
     if not configPath.endswith('yaml'):
-        print ("Configuration file must be .yaml extension.\nLooking for configuration file in default locations...")
+        writeLog("Configuration file must be .yaml extension.\nLooking for configuration file in default locations.", logFilePath, severity='error')
         return False
 
     # Check if file exists
     if not os.path.exists(configPath):
-        print ("Specified path to the configuration file is invalid.\nLooking for configuration file in default locations...")
+        writeLog("Specified path to the configuration file is invalid.\nLooking for configuration file in default locations.", logFilePath, severity='error')
         return False
     else:
         return True
@@ -431,10 +506,46 @@ def getDefaultConfigPath():
         if os.path.exists(configPath):
             return configPath
     else:
-        print ("Platform couldn't be recognized. Are you sure you are running this script on Windows or Ubuntu Linux?")
+        writeLog("Platform couldn't be recognized. Are you sure you are running this script on Windows or Ubuntu Linux?", logFilePath, severity='code-breaker', data={'code':1})
         exit()
-    print ("suredone.yaml config file wasn't found in default locations!\nSpecify a path to configuration file using (-f --file) argument.")
+
+    writeLog("suredone.yaml config file wasn't found in default locations!\nSpecify a path to configuration file using (-f --file) argument.", logFilePath, severity='code-breaker', data={'code':1})
     exit()
+
+def getLogPath():
+    """
+    Function that will determine the default log file path based on the operating system being used.
+    Will also create appropriate directories they aren't present.
+
+    Returns
+    -------
+        - logFilePath : str
+            Path to the log file.
+    """
+    # Define the file name for logging
+    temp = datetime.now().strftime('%Y_%m_%d-%H-%M-%S')
+    logFileName = "suredone_download_" + temp + ".log"
+
+    # If the platform is windows, set the log file path to the current user's Downloads/log folder
+    if sys.platform == 'win32' or sys.platform == 'win64': # Windows
+        logFilePath = os.path.expandvars(r'%USERPROFILE%')
+        logFilePath = os.path.join(logFilePath, 'Downloads')
+        logFilePath = os.path.join(logFilePath, 'log')
+        if os.path.exists(logFilePath):
+            return os.path.join(logFilePath, logFileName)
+        else:   # Create the log directory
+            os.mkdir(logFilePath)
+            return logFilePath + logFileName
+
+    # If Linux, set the download path to the $HOME/downloads folder
+    elif sys.platform == 'linux' or sys.platform == 'linux2': # Linux
+        logFilePath = expanduser('~')
+        logFilePath = os.path.join(logFilePath, 'log')
+        if os.path.exists(logFilePath):
+            return os.path.join(logFilePath, logFileName)
+        else:   # Create the log directory
+            os.mkdir(logFilePath)
+            return os.path.join(logFilePath, logFileName)
 
 """ Custom Exceptions that will be caught by the script """
 class LoadingError(Exception):
@@ -490,15 +601,14 @@ class SureDone:
         """
         # Build url string by concatenating the main url with the sub module
         url = self.api_endpoint + endpoint
-        error_count = 0
+        errorCount = 0
 
         # Main loop
         while True:
             # 3 or more errors break the loop
-            if error_count >= 3:
+            if errorCount >= 3:
                 break
             try:
-                # print(url,json.dumps(data),self.headers)
                 # Invoke the corresponding api call based on the type
                 if typ == 'get':
                     resp = requests.get(url, params=data, headers=self.headers, timeout=self.timeout)
@@ -511,9 +621,9 @@ class SureDone:
             except requests.exceptions.RequestException as e:
                 # Error handling. Increment error counter and sleep for
                 # 15 seconds and try again if error was ocurred
-                print(' HTTP Error {} {} {} {}'.format(typ, url, data, e))
-                print(' attempt', error_count)
-                error_count += 1
+                temp = 'HTTP Error {} {} {} {}.'.format(typ, url, data, e) + '\nAttempt ' + str(errorCount)
+                writeLog(temp, logFilePath, severity='error')
+                errorCount += 1
                 time.sleep(15)
                 continue
 
@@ -525,16 +635,17 @@ class SureDone:
                 except json.decoder.JSONDecodeError:
                     # Error handling. Increment error counter and raise LoadingError
                     # if the response was OK but data couldn't be read in JSON
-                    print(' JSONDecodeError Error', typ, url, data)
-                    print(resp.text)
-                    error_count += 1
+                    temp = 'JSONDecodeError Error ' + typ + ' ' + url + ' ' + data + "\n" + resp.text
+                    writeLog(temp, logFilePath, severity='error')
+                    errorCount += 1
+                    # TODO: remove custom exceptions probably
                     raise LoadingError
                 
                 # Return the JSON formatted data
                 return r
             elif resp.status_code == 401:  # Unauthorized
                 # Error handling. Handle for unauthorized error.
-                print(json.dumps(self.headers, indent=4))
+                writeLog(json.dumps(self.headers, indent=4), logFilePath, severity='error')
                 raise UnauthorizedError
             elif resp.status_code == 403:
                 try:
@@ -542,9 +653,9 @@ class SureDone:
                     r = json.loads(resp.text)
                 except json.decoder.JSONDecodeError:
                     # Error handling. Increment error counter and sleep for 15 seconds 
-                    # and try again if the 403 error couldn't also be decoded to JSON either. 
-                    print('api json.decoder 403', resp.text)
-                    error_count += 1
+                    # and try again if the 403 error couldn't also be decoded to JSON either.
+                    writeLog('API json.decoder 403 ' + resp.text, logFilePath, severity='error')
+                    errorCount += 1
                     time.sleep(15)
                     continue
                 try:
@@ -555,13 +666,12 @@ class SureDone:
                 except KeyError:
                     # Error handling. Increment error counter and sleep for 15 seconds
                     # and try again if r['message'] wasn't present in the response.
-                    print('api not message. 403', resp.text, data)
-                    error_count += 1
+                    writeLog('Api not message: 403 ' + resp.text + ' ' + data, logFilePath, severity='error')
+                    errorCount += 1
                     time.sleep(15)
                     continue
             # ?? TODO: Find out more
             elif resp.status_code == 429:  # X-Rate-Limit-Time-Reset-Ms
-                # print(' Rate limit in {}. Wait 40 sec'.format(url))
                 time.sleep(40)
                 continue
             # elif resp.status_code == 422:
@@ -573,13 +683,15 @@ class SureDone:
             #     time.sleep(60)
             #     continue
             else:
-                error_count += 1
-                print(' Error', error_count, resp.status_code, typ, url, data)
-                print(resp.text)
+                errorCount += 1
+                temp = 'Error' + ' ' + errorCount + ' ' + resp.status_code + ' ' + typ + ' ' + url + ' ' + data + '\n' + resp.text
+                writeLog(temp, logFilePath, severity='error')
                 time.sleep(10)
                 continue
             break
-        print(' Error', error_count, typ, url, data)
+        # TODO: logxx
+        temp = 'Error ' + str(errorCount) + ' ' + typ + ' ' + url + ' ' + data
+        writeLog(temp, logFilePath, severity='error')
         raise LoadingError
 
 def purge(dir, pattern, inclusive=True):
@@ -613,6 +725,9 @@ def purge(dir, pattern, inclusive=True):
                 #     if len(os.listdir(path)) == 0:
                 #         os.rmdir(path)
     return count
+
+# Determine log file path
+logFilePath = getLogPath()
 
 if __name__ == "__main__":
     main(sys.argv[1:])
