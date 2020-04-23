@@ -129,22 +129,13 @@ import time
 import os
 from os.path import expanduser
 
+# TODO: EVERY PRINT STATEMENT NEEDS TO GO
+
 PYTHON_VERSION = float(sys.version[:sys.version.index(' ')-2])
 
-def main(argv):
-    # Check if python version is 3.5 or higher
-    if not PYTHON_VERSION >= 3.5:
-        print ("Must use Python version 3.5 or higher!")
-        exit()
-
-    #TODO: Modularize this funciton as much as possible
-    # Parse arguments
-    waitTime, configPath = parseArgs(argv)
-
-    print('SureDone bulk downloader')
-    print ("Wait time: {} seconds.".format(waitTime))
-    print ("Configurations path: {}.".format(configPath))
-
+def loadConfig (configPath):
+    """TODO
+    """
     # Loading configurations
     with open(configPath, 'r') as stream:
         try:
@@ -153,32 +144,44 @@ def main(argv):
             print(exc)
     
     # Try to read the user and api_token from suredone_api set in the settings
-    # Print error that the settings weren't found and exit    
+    # Print error that the settings weren't found and exit
     try:
         user = config['user']
-        api_token = config['token']
+        apiToken = config['token']
     except KeyError:
         print('Not found user or api_token in suredone_api section')
         exit()
+    return user, apiToken
 
-    print ("Configuration read...", end='\r')
+def getDownloadPath():
+    """TODO
+    """
     # If the platform is windows, set the download path to the current user's Downloads folder
-    if re.search('Windows', str(platform.platform())):
-        path = expanduser("~") + "\\Downloads\\"
-        purge(path, 'SureDone_')
+    if sys.platform == 'win32' or sys.platform == 'win64': # Windows
+        downloadPath = os.path.expandvars(r'%USERPROFILE%')
+        downloadPath = os.path.join(downloadPath, 'Downloads')
+        downloadPath = expanduser("~") + "\\Downloads\\"
+        purge(downloadPath, 'SureDone_')
+        return downloadPath
 
-    # Else, set the download path to the current folder
+    # If Linux, set the download path to the $HOME/downloads folder
+    elif sys.platform == 'linux' or sys.platform == 'linux2': # Linux
+        downloadPath = expanduser('~')
+        downloadPath = os.path.join(downloadPath, 'downloads')
+        if os.path.exists(downloadPath):
+            purge(downloadPath, 'SureDone_')
+        else:   # Create the downloads directory
+            os.mkdir(downloadPath)
+        return downloadPath
     else:
-        path = ''
+        downloadPath = ''
         purge('.', 'SureDone_')
+        return downloadPath
 
-    # If the directory has anything at all, remove all files that
-    # start with 'SureDone_' in the directory and subdirectories.
-    # TODO: This funciton has been called above. Why repeat?
-    purge('.', 'SureDone_')
-    print ("Purged existing files...", end='\r')
+def getDataForExports():
+    """TODO
+    """
     # Prepare to send api call. Create the SureDone object and create the data dict
-    sd = SureDone(user, api_token, waitTime)
     data = {}
     data['type'] = 'items'
     data['mode'] = 'include'
@@ -201,59 +204,89 @@ def main(argv):
     # Rejoin the fields into a single string, separated by a ','
     data['fields'] = ','.join(field_list)
 
-    # Invoke the GET API call in v1/bulk/exports sub module
-    r = sd.apicall('get', 'bulk/exports', data)
-    # print(json.dumps(r, indent=4))
-    print ("API response recieved...", end='\r')
-    # If the returning json has a 'result' key with 'success' value...
-    if r['result'] == 'success':
-        # Get the file name of the newly downloaded file
-        file_name = r['export_file']
+def downloadExportedFile(fileName, downloadPath, sureDone):
+    """TODO
+    """
+    errorCount=0
+    while True:
+        # Invoke api call to the same module but with a filename and no data 
+        fileDownloadURLResponse = sureDone.apicall('get', 'bulk/exports/' + fileName, {})
 
-        # Now that we have the file name, time to download the file
-        # print(json.dumps(r, indent=4))
-        e_count=0
-        while True:
-            # Invoke api call to the same module but with a filename and no data 
-            r = sd.apicall('get', 'bulk/exports/' + file_name, {})
+        # If the result was successfull...
+        if fileDownloadURLResponse['result'] == 'success':
+            # Set the path, get the download URL of the file requested, and start a stream to download it
+            print ("Starting file download...", end='\r')
+            downloadedFilePath = downloadPath + 'SureDone_' + fileName
+            downloadStream = requests.get(fileDownloadURLResponse['url'], stream=True)
+            
+            # Get all the file bytes in the stream and write to the file
+            index = 0
+            with open(downloadedFilePath, 'wb') as downloadedFile:
+                for index, chunk in enumerate(downloadStream.iter_content(chunk_size=1024)):
+                    if chunk:  # filter out keep-alive new chunks
+                        downloadedFile.write(chunk)
 
-            # If the result was successfull...
-            if r['result'] == 'success':
-                # Define the path to where the file should be kept
-                # ?? TODO: this path definition has ocurred twice now
-                if re.search('Windows', str(platform.platform())):
-                    path = expanduser("~") + "\\Downloads\\"
-                else:
-                    path = ''
-                
-                # Set the path, get the download URL of the file requested, and start a stream to download it
-                print ("Starting file download...", end='\r')
-                save_to_file = path + 'SureDone_' + file_name
-                resp = requests.get(r['url'], stream=True)
-                idx=0
-                with open(save_to_file, 'wb') as f:
-                    for idx, chunk in enumerate(resp.iter_content(chunk_size=1024)):
-                        if chunk:  # filter out keep-alive new chunks
-                            f.write(chunk)
-
-                print('Saved to', save_to_file)
+            print('Saved to', downloadedFilePath)
+            break
+        else:
+            # If the api call with the file name in the url wasn't successfull
+            # Increase the error count and check if error count has crossed 10 or not.
+            # More than 10 attempts with errors will end the code
+            errorCount += 1
+            if errorCount > 10:
+                print(fileDownloadURLResponse)
+                print('Can not download.')
                 break
             else:
-                # If the api call with the file name in the url wasn't successfull
-                # Increase the error count and check if error count has crossed 10 or not.
-                # More than 10 attempts with errors will end the code
-                e_count +=1
-                if e_count >10:
-                    print(r)
-                    print('Can not download {}'.format(''))
-                    break
-                else:
-                    print('attempt',e_count,r)
-                    time.sleep(30)
-                    continue
+                print('attempt',errorCount,fileDownloadURLResponse)
+                time.sleep(30)
+                continue
+
+def main(argv):
+    # Check if python version is 3.5 or higher
+    if not PYTHON_VERSION >= 3.5:
+        print ("Must use Python version 3.5 or higher!")
+        exit()
+
+    # Parse arguments
+    waitTime, configPath = parseArgs(argv)
+
+    print('SureDone bulk downloader')
+    print ("Wait time: {} seconds.".format(waitTime))
+    print ("Configurations path: {}.".format(configPath))
+
+    # Parse configuration
+    user, apiToken = loadConfig(configPath)
+
+    print ("Configuration read...", end='\r')
+    
+    # Initialize API handler object
+    sureDone = SureDone(user, apiToken, waitTime)
+
+    # Get data to send to the bulk/exports sub module
+    data = getDataForExports()
+
+    # Invoke the GET API call to bulk/exports sub module
+    exportRequestResponse = sureDone.apicall('get', 'bulk/exports', data)
+    
+    print ("API response recieved...", end='\r')
+
+    # Get download Path
+    downloadPath = getDownloadPath()
+
+    print ("Purged existing files...", end='\r')
+    
+    # If the returning json has a 'result' key with 'success' value...
+    if exportRequestResponse['result'] == 'success':
+        # Get the file name of the newly exported file
+        fileName = exportRequestResponse['export_file']
+
+        # Download and save the file
+        downloadExportedFile(fileName, downloadPath, sureDone)
+
     # If the returning JSON wasn't successful in the first place, end the code with a generic error.
     else:
-        print('Can not export {}'.format())
+        print('Can not export for some reason.')
 
 def parseArgs(argv):
     """
@@ -355,6 +388,9 @@ def getDefaultPath():
         configPath = os.path.join(directory, fileName)
         if os.path.exists(configPath):
             return configPath
+    else:
+        print ("Platform couldn't be recognized. Are you sure you are running this script on Windows or Ubuntu Linux?")
+        exit()
     print ("suredone.yaml config file wasn't found in default locations!\nSpecify a path to configuration file using (-f --file) argument.")
     exit()
 
