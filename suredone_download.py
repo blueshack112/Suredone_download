@@ -220,6 +220,7 @@ def safeExit(downloadPath, marker=''):
         print("Starting time: {}".format(START_TIME.strftime("%H:%M:%S")))
         print("Ending time: {}".format(END_TIME.strftime("%H:%M:%S")))
         print("Total execution time: {} milliseconds ({} seconds)".format(executionTime, (executionTime/1000)))
+        print("Total rows of data in downloaded file: {}".format(numRows))
 
 def loadConfig (configPath):
     """
