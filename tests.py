@@ -1,11 +1,22 @@
-import yaml
+import sys
+import traceback
 
-with open("suredone.yaml", 'r') as stream:
-    try:
-        config = yaml.safe_load(stream)
-    except yaml.YAMLError as exc:
-        print(exc)
+def uncaughtExceptionLogger(exctype, value, tb):
+    print ('My Error Information')
+    print ('Type:', exctype)
+    print ('Value:', value)
+    print ('Traceback:', )
+    
+    for i in traceback.format_list(traceback.extract_tb(tb)):
+        print (i)
 
 
-print (config['user'])
-print (config['token'])
+
+sys.excepthook = uncaughtExceptionLogger
+
+def raiseError():
+    raise FileExistsError
+
+def raiseError2():
+    raiseError()
+raiseError2()
