@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.3
+@version: 1.0.4
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
