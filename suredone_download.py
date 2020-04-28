@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.4
+@version: 1.0.5
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
@@ -150,12 +150,13 @@ def main(argv):
 
     # Parse arguments
     # When verbose argument is added, change the verbose of the logger based on the argument as well
-    waitTime, configPath, delimiter = parseArgs(argv)
-
+    waitTime, configPath, delimiter, outputFilePath = parseArgs(argv)
+    
     # TODO: add more arguments data here
     LOGGER.writeLog("SureDone bulk downloader initalized.", localFrame.f_lineno, severity='normal')
     LOGGER.writeLog("Wait time: {} seconds.".format(waitTime), localFrame.f_lineno, severity='normal')
     LOGGER.writeLog("Configurations path: {}.".format(configPath), localFrame.f_lineno, severity='normal')
+    LOGGER.writeLog("Delimiter: {}.".format(delimiter), localFrame.f_lineno, severity='normal')
 
     # Parse configuration
     user, apiToken = loadConfig(configPath)
@@ -178,16 +179,13 @@ def main(argv):
         # Get the file name of the newly exported file
         fileName = exportRequestResponse['export_file']
 
-        # Get download Path
-        downloadPath = getDefaultDownloadPath()
-
         # TODO: This will be removed when preserve is implemented
         LOGGER.writeLog("Purged existing files.", localFrame.f_lineno, severity='normal')
 
         # Download and save the file
-        downloadExportedFile(fileName, downloadPath, sureDone, delimiter=delimiter)
+        downloadExportedFile(fileName, outputFilePath, sureDone, delimiter=delimiter)
 
-        safeExit(os.path.join(downloadPath, 'SureDone_' + fileName), marker='execution-complete')
+        safeExit(outputFilePath, marker='execution-complete')
 
     # If the returning JSON wasn't successful in the first place, end the code with a generic error.
     else:
@@ -216,11 +214,13 @@ def safeExit(downloadPath, marker=''):
 
     # For execution-completed
     if marker == 'execution-complete':
+        print("=================================================================")
         print("SCRIPT EXECUTED SUCCESSFULLY")
         print("Starting time: {}".format(START_TIME.strftime("%H:%M:%S")))
         print("Ending time: {}".format(END_TIME.strftime("%H:%M:%S")))
         print("Total execution time: {} milliseconds ({} seconds)".format(executionTime, (executionTime/1000)))
-        print("Total rows of data in downloaded file: {}".format(numRows))
+        print("Total records in downloaded file: {}".format(numRows))
+        print("=================================================================")
 
 def loadConfig (configPath):
     """
@@ -270,10 +270,15 @@ def getDefaultDownloadPath():
     -----
         - Implement preserve argument. If preserve is activated, don't purge the files
     """
+    # Generate file name
+    suffix = datetime.now().strftime('%Y_%m_%d-%H-%M-%S')
+    fileName = 'Suredone_Downloads_' + suffix + '.csv'    
+
     # If the platform is windows, set the download path to the current user's Downloads folder
     if sys.platform == 'win32' or sys.platform == 'win64': # Windows
         downloadPath = os.path.expandvars(r'%USERPROFILE%')
         downloadPath = os.path.join(downloadPath, 'Downloads')
+        downloadPath = os.path.join(downloadPath, fileName)
         purge(downloadPath, 'SureDone_')
         return downloadPath
 
@@ -285,6 +290,7 @@ def getDefaultDownloadPath():
             purge(downloadPath, 'SureDone_')
         else:   # Create the downloads directory
             os.mkdir(downloadPath)
+        downloadPath = os.path.join(downloadPath, fileName)
         return downloadPath
 
 def getDataForExports():
@@ -319,7 +325,7 @@ def getDataForExports():
     # Rejoin the fields into a single string, separated by a ','
     data['fields'] = ','.join(field_list)
 
-def downloadExportedFile(fileName, downloadPath, sureDone, delimiter=','):
+def downloadExportedFile(fileName, downloadFilePath, sureDone, delimiter=','):
     """
     Fucntion that is invoked once the file is exported and is ready to download.
     Invokes the download stream, reads it and write to the file in the decided download directory.
@@ -343,7 +349,6 @@ def downloadExportedFile(fileName, downloadPath, sureDone, delimiter=','):
         if fileDownloadURLResponse['result'] == 'success':
             # Set the path, get the download URL of the file requested, and start a stream to download it
             LOGGER.writeLog("Starting file download.", localFrame.f_lineno, severity='normal')
-            downloadFilePath = os.path.join(downloadPath, 'SureDone_' + fileName)
             downloadStream = requests.get(fileDownloadURLResponse['url'], stream=True)
             
             # Get all the file bytes in the stream and write to the file
@@ -394,16 +399,20 @@ def parseArgs(argv):
             A custom path to the configuration file containing API keys
         - delimiter : str
             A single character that is to be used as the delimiter in the CSVs
+        - outputFilePath : str
+            A custom path to the location where the file needs to be downloaded. Must contain the file name as well.
     """
     # Defining options in for command line arguments
-    options = "hw:f:d:"
-    long_options = ["help", "wait=", "file=", 'delimiter=']
+    options = "hw:f:d:o:"
+    long_options = ["help", "wait=", "file=", 'delimiter=','output=']
     
     # Arguments
     waitTime = 15
     configPath = 'suredone.yaml'
+    customConfigPathFoundAndValidated = False
     delimiter = ','
-    customPathFoundAndValidated = False
+    
+    outputFilePath = getDefaultDownloadPath()
 
     # Extracting arguments
     try:
@@ -423,15 +432,38 @@ def parseArgs(argv):
             waitTime = float(value)
         elif option in ("-f", "--file"):
             configPath = value
-            customPathFoundAndValidated = validateConfigPath(configPath)
+            customConfigPathFoundAndValidated = validateConfigPath(configPath)
         elif option in ("-d", "--delimiter"):
             delimiter = value
             delimiter = validateDelimiter(delimiter)
+        elif option in ("-o", "--output"):
+            outputFilePath = value
+            outputFilePath = validateDownloadPath(outputFilePath)
 
     # If custom path to config file wasn't found, search in default locations
-    if not customPathFoundAndValidated:
+    if not customConfigPathFoundAndValidated:
         configPath = getDefaultConfigPath()
-    return waitTime, configPath, delimiter
+
+    return waitTime, configPath, delimiter, outputFilePath
+
+def validateDownloadPath(path):
+    """
+    Function that will vlidate the custom download path and load defaul if not found.
+
+    Parameters
+    ----------
+        - path : str
+            The custom download path that needs to be validated
+    Returns
+    -------
+        - path : str
+            The same path as input if validated and a default download path if invalidated
+    """
+    localFrame =  inspect.currentframe()
+    if not path.endswith('.csv'):
+        LOGGER.writeLog("The download path must define the filename as well with '.csv' extension. Switching to default download location.", localFrame.f_lineno, severity='warning')
+        return getDefaultDownloadPath()
+    return path
 
 def validateDelimiter(delimiter):
     """
@@ -537,6 +569,9 @@ class Logger(object):
     def __init__(self, verbose=False):
         self.terminal = sys.stdout
         self.log = open(self.getLogPath(), "a")
+        # Write the header row
+        self.log.write(' Ind. |LineNo.| Time stamp  : Message')
+        self.log.write('\n=====================================\n')
         self.verbose = verbose
 
     def getLogPath(self):
@@ -614,16 +649,16 @@ class Logger(object):
         lineNumber = str(lineNumber)
         if severity == 'normal':
             indicator = '[N]'
-            toWrite = indicator + '|' + lineNumber + '|' + timestamp + ': ' + message
+            toWrite = ' ' + indicator + '  |  ' + lineNumber + '  | ' + timestamp + ': ' + message
         elif severity == 'warning':
             indicator = '[W]'
-            toWrite = indicator + '|' + lineNumber + '|' + timestamp + ': ' + message
+            toWrite = ' ' + indicator + '  |  ' + lineNumber + '  | ' + timestamp + ': ' + message
         elif severity == 'error':
             indicator = '[X]'
-            toWrite = indicator + '|' + lineNumber + '|' + timestamp + ': ' + message        
+            toWrite = ' ' + indicator + '  |  ' + lineNumber + '  | ' + timestamp + ': ' + message        
         elif severity == 'code-breaker':
             indicator = '[!]'
-            toWrite = indicator + '|' + lineNumber + '|' + timestamp + ': ' + message
+            toWrite = ' ' + indicator + '  |  ' + lineNumber + '  | ' + timestamp + ': ' + message
             
             if data['code'] == 2: # Response recieved but unsuccessful
                 details = '\n[ErrorDetailsStart]\n' + data['response'] + '\n[ErrorDetailsEnd]'
