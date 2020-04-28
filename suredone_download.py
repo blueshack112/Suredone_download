@@ -150,7 +150,7 @@ def main(argv):
 
     # Parse arguments
     # When verbose argument is added, change the verbose of the logger based on the argument as well
-    waitTime, configPath = parseArgs(argv)
+    waitTime, configPath, delimiter = parseArgs(argv)
 
     # TODO: add more arguments data here
     LOGGER.writeLog("SureDone bulk downloader initalized.", localFrame.f_lineno, severity='normal')
@@ -185,7 +185,7 @@ def main(argv):
         LOGGER.writeLog("Purged existing files.", localFrame.f_lineno, severity='normal')
 
         # Download and save the file
-        downloadExportedFile(fileName, downloadPath, sureDone)
+        downloadExportedFile(fileName, downloadPath, sureDone, delimiter=delimiter)
 
         safeExit(os.path.join(downloadPath, 'SureDone_' + fileName), marker='execution-complete')
 
@@ -319,7 +319,7 @@ def getDataForExports():
     # Rejoin the fields into a single string, separated by a ','
     data['fields'] = ','.join(field_list)
 
-def downloadExportedFile(fileName, downloadPath, sureDone):
+def downloadExportedFile(fileName, downloadPath, sureDone, delimiter=','):
     """
     Fucntion that is invoked once the file is exported and is ready to download.
     Invokes the download stream, reads it and write to the file in the decided download directory.
@@ -343,16 +343,23 @@ def downloadExportedFile(fileName, downloadPath, sureDone):
         if fileDownloadURLResponse['result'] == 'success':
             # Set the path, get the download URL of the file requested, and start a stream to download it
             LOGGER.writeLog("Starting file download.", localFrame.f_lineno, severity='normal')
-            downloadedFilePath = os.path.join(downloadPath, 'SureDone_' + fileName)
+            downloadFilePath = os.path.join(downloadPath, 'SureDone_' + fileName)
             downloadStream = requests.get(fileDownloadURLResponse['url'], stream=True)
             
             # Get all the file bytes in the stream and write to the file
             index = 0
-            with open(downloadedFilePath, 'wb') as downloadedFile:
+            with open(downloadFilePath, 'wb') as downloadedFile:
                 for index, chunk in enumerate(downloadStream.iter_content(chunk_size=1024)):
                     if chunk:  # filter out keep-alive new chunks
                         downloadedFile.write(chunk)
-            LOGGER.writeLog("Saved to " + downloadedFilePath, localFrame.f_lineno, severity='normal')
+            
+            # Re open the saved csv and save it back with the desired delimiter
+            # As long as the delimiter desired is not ',' becasue the default way of delimiting the csv is via ','
+            if delimiter != ',':
+                temp = pd.read_csv(downloadFilePath, index_col='id')
+                temp.to_csv(downloadFilePath, sep=delimiter)
+                
+            LOGGER.writeLog("Saved to " + downloadFilePath, localFrame.f_lineno, severity='normal')
             break
         else:
             # If the api call with the file name in the url wasn't successfull
@@ -381,16 +388,21 @@ def parseArgs(argv):
     Returns
     -------
         - waitTime : int
-            - The time defined in seconds by the user before which the requests must not timeout if a response is not received from the API
-            - Can be float in order to access millisecond scale
+            The time defined in seconds by the user before which the requests must not timeout if a response is not received from the API
+            Can be float in order to access millisecond scale
+        - configPath : str
+            A custom path to the configuration file containing API keys
+        - delimiter : str
+            A single character that is to be used as the delimiter in the CSVs
     """
     # Defining options in for command line arguments
-    options = "hw:f:"
-    long_options = ["help", "wait=", "file="]
+    options = "hw:f:d:"
+    long_options = ["help", "wait=", "file=", 'delimiter=']
     
     # Arguments
     waitTime = 15
     configPath = 'suredone.yaml'
+    delimiter = ','
     customPathFoundAndValidated = False
 
     # Extracting arguments
@@ -401,6 +413,7 @@ def parseArgs(argv):
         print ("Error in arguments!")
         print (HELP_MESSAGE)
         exit()
+
     for option, value in opts:
         if option == '-h':
             # Not logging here since this is a command-line feature and must be printed on console
@@ -411,12 +424,51 @@ def parseArgs(argv):
         elif option in ("-f", "--file"):
             configPath = value
             customPathFoundAndValidated = validateConfigPath(configPath)
+        elif option in ("-d", "--delimiter"):
+            delimiter = value
+            delimiter = validateDelimiter(delimiter)
 
     # If custom path to config file wasn't found, search in default locations
     if not customPathFoundAndValidated:
         configPath = getDefaultConfigPath()
+    return waitTime, configPath, delimiter
+
+def validateDelimiter(delimiter):
+    """
+    Function that validates the delimiter option input by the user.
+    Main issues to check for is length and make sure that the chosen delimiter is within a list of acceptable options.
+
+    Parameters
+    ----------
+        - delimiter : str
+            The user-specified delimiter option
     
-    return waitTime, configPath
+    Returns
+    -------
+        - delimiter : str
+            The same delimiter if validated and a ',' as a delimiter if not validated.
+    """
+    localFrame = inspect.currentframe()
+    # Account for '\\t' and '\t'
+    if delimiter == '\\t':
+        delimiter = '\t'
+    
+    # Check for length
+    if len(delimiter) > 1:
+        LOGGER.writeLog("Length of the delimiter was greater than one character, switching to default ',' delimiter.", localFrame.f_lineno, severity='warning')
+        delimiter = ','
+        return delimiter
+
+    # Check that it's within acceptable options
+    acceptableDelimiters = [',', '\t', ':', '|', ' ']
+
+
+    if delimiter not in acceptableDelimiters:
+        LOGGER.writeLog("Delimiter was not selected from acceptable options, switching to ',' default delimiter.", localFrame.f_lineno, severity='warning')
+        delimiter = ','
+        return delimiter
+    
+    return delimiter
 
 def validateConfigPath(configPath):
     """
@@ -524,7 +576,7 @@ class Logger(object):
 
     def write(self, message):
         if self.verbose:
-            self.terminal.write(message + "\n")
+            self.terminal.write(message)
             self.terminal.flush()
         self.log.write(message)
     
@@ -583,7 +635,7 @@ class Logger(object):
         # Write out the message
         self.log.write(toWrite + '\n')
         if self.verbose:
-            self.terminal.write(message + "\n")
+            self.terminal.write(message + '\n')
             self.terminal.flush()
 
     def getCurrentTimestamp(self):
@@ -611,10 +663,10 @@ class Logger(object):
             - traceBack : traceback object
                 Contains information about the stack trace.
         """
-        LOGGER.write('Exception Occured! Details follow below.')
-        LOGGER.write('Type:{}'.format(exctype))
-        LOGGER.write('Value:{}'.format(value))
-        LOGGER.write('Traceback:')
+        LOGGER.write('Exception Occured! Details follow below.\n')
+        LOGGER.write('Type:{}\n'.format(exctype))
+        LOGGER.write('Value:{}\n'.format(value))
+        LOGGER.write('Traceback:\n')
         for i in traceback.format_list(traceback.extract_tb(traceBack)):
             LOGGER.write(i)
 
@@ -804,7 +856,7 @@ def purge(dir, pattern, inclusive=True):
     return count
 
 # Determine log file path
-LOGGER = Logger(verbose=False)
+LOGGER = Logger(verbose=True)
 
 if __name__ == "__main__":
     sys.stdout = LOGGER
