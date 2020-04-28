@@ -143,20 +143,22 @@ START_TIME = datetime.now()
 
 def main(argv):
     localFrame = inspect.currentframe()
+
+    # Parse arguments
+    # When verbose argument is added, change the verbose of the logger based on the argument as well
+    waitTime, configPath, delimiter, outputFilePath, preserveOldFiles, verbose = parseArgs(argv)
+
     # Check if python version is 3.5 or higher
     if not PYTHON_VERSION >= 3.5:
         LOGGER.writeLog("Must use Python version 3.5 or higher!", localFrame.f_lineno, severity='code-breaker', data={'code':1})
         exit()
-
-    # Parse arguments
-    # When verbose argument is added, change the verbose of the logger based on the argument as well
-    waitTime, configPath, delimiter, outputFilePath = parseArgs(argv)
     
-    # TODO: add more arguments data here
     LOGGER.writeLog("SureDone bulk downloader initalized.", localFrame.f_lineno, severity='normal')
     LOGGER.writeLog("Wait time: {} seconds.".format(waitTime), localFrame.f_lineno, severity='normal')
     LOGGER.writeLog("Configurations path: {}.".format(configPath), localFrame.f_lineno, severity='normal')
     LOGGER.writeLog("Delimiter: {}.".format(delimiter), localFrame.f_lineno, severity='normal')
+    LOGGER.writeLog("Preserve old files: {}.".format(preserveOldFiles), localFrame.f_lineno, severity='normal')
+    LOGGER.writeLog("Verbose: {}.\n".format(verbose), localFrame.f_lineno, severity='normal')
 
     # Parse configuration
     user, apiToken = loadConfig(configPath)
@@ -178,9 +180,6 @@ def main(argv):
     if exportRequestResponse['result'] == 'success':
         # Get the file name of the newly exported file
         fileName = exportRequestResponse['export_file']
-
-        # TODO: This will be removed when preserve is implemented
-        LOGGER.writeLog("Purged existing files.", localFrame.f_lineno, severity='normal')
 
         # Download and save the file
         downloadExportedFile(fileName, outputFilePath, sureDone, delimiter=delimiter)
@@ -255,7 +254,7 @@ def loadConfig (configPath):
         exit()
     return user, apiToken
 
-def getDefaultDownloadPath():
+def getDefaultDownloadPath(preserve):
     """
     Function to check the operating system and determine the appropriate 
     download path for the export file based on operating system.
@@ -266,20 +265,21 @@ def getDefaultDownloadPath():
     -------
         - downloadPath : str
             A valid path that points to the diretory where the file should be downloaded
-    TODO:
-    -----
-        - Implement preserve argument. If preserve is activated, don't purge the files
     """
+    localFrame = inspect.currentframe()
     # Generate file name
     suffix = datetime.now().strftime('%Y_%m_%d-%H-%M-%S')
-    fileName = 'Suredone_Downloads_' + suffix + '.csv'    
+    fileName = 'SureDone_Downloads_' + suffix + '.csv'    
 
     # If the platform is windows, set the download path to the current user's Downloads folder
     if sys.platform == 'win32' or sys.platform == 'win64': # Windows
         downloadPath = os.path.expandvars(r'%USERPROFILE%')
         downloadPath = os.path.join(downloadPath, 'Downloads')
+        if not preserve:
+            purge(downloadPath, 'SureDone_')
+            LOGGER.writeLog("Purged existing files.", localFrame.f_lineno, severity='normal')
+        
         downloadPath = os.path.join(downloadPath, fileName)
-        purge(downloadPath, 'SureDone_')
         return downloadPath
 
     # If Linux, set the download path to the $HOME/downloads folder
@@ -287,9 +287,12 @@ def getDefaultDownloadPath():
         downloadPath = expanduser('~')
         downloadPath = os.path.join(downloadPath, 'downloads')
         if os.path.exists(downloadPath):
-            purge(downloadPath, 'SureDone_')
+            if not preserve:
+                purge(downloadPath, 'SureDone_')
+                LOGGER.writeLog("Purged existing files.", localFrame.f_lineno, severity='normal')
         else:   # Create the downloads directory
             os.mkdir(downloadPath)
+        
         downloadPath = os.path.join(downloadPath, fileName)
         return downloadPath
 
@@ -401,18 +404,23 @@ def parseArgs(argv):
             A single character that is to be used as the delimiter in the CSVs
         - outputFilePath : str
             A custom path to the location where the file needs to be downloaded. Must contain the file name as well.
+        - verbose : bool
+        - preserveOldFiles : bool
+            A boolean variable that will tell the script to keep or remove older downloaded files in the download path
     """
     # Defining options in for command line arguments
-    options = "hw:f:d:o:"
-    long_options = ["help", "wait=", "file=", 'delimiter=','output=']
+    options = "hw:f:d:o:vp"
+    long_options = ["help", "wait=", "file=", 'delimiter=','output=', 'verbose', 'preserve']
     
     # Arguments
     waitTime = 15
     configPath = 'suredone.yaml'
     customConfigPathFoundAndValidated = False
-    delimiter = ','
-    
-    outputFilePath = getDefaultDownloadPath()
+    delimiter = ','    
+    outputFilePath = ''
+    customOutputPathFoundAndValidated = False
+    verbose = False
+    preserveOldFiles = False
 
     # Extracting arguments
     try:
@@ -438,13 +446,22 @@ def parseArgs(argv):
             delimiter = validateDelimiter(delimiter)
         elif option in ("-o", "--output"):
             outputFilePath = value
-            outputFilePath = validateDownloadPath(outputFilePath)
+            customOutputPathFoundAndValidated = validateDownloadPath(outputFilePath)
+        elif option in ("-p", "--preserve"):
+            preserveOldFiles = True
+        elif option in ("-v", "--verbose"):
+            verbose = True
+            # Updating logger's behavior based on verbose
+            LOGGER.verbose = verbose
+
 
     # If custom path to config file wasn't found, search in default locations
     if not customConfigPathFoundAndValidated:
         configPath = getDefaultConfigPath()
+    if not customOutputPathFoundAndValidated:
+        outputFilePath = getDefaultDownloadPath(preserve=preserveOldFiles)
 
-    return waitTime, configPath, delimiter, outputFilePath
+    return waitTime, configPath, delimiter, outputFilePath, preserveOldFiles, verbose
 
 def validateDownloadPath(path):
     """
@@ -462,8 +479,8 @@ def validateDownloadPath(path):
     localFrame =  inspect.currentframe()
     if not path.endswith('.csv'):
         LOGGER.writeLog("The download path must define the filename as well with '.csv' extension. Switching to default download location.", localFrame.f_lineno, severity='warning')
-        return getDefaultDownloadPath()
-    return path
+        return False
+    return True
 
 def validateDelimiter(delimiter):
     """
@@ -891,7 +908,7 @@ def purge(dir, pattern, inclusive=True):
     return count
 
 # Determine log file path
-LOGGER = Logger(verbose=True)
+LOGGER = Logger(verbose=False)
 
 if __name__ == "__main__":
     sys.stdout = LOGGER
