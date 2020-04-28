@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.5
+@version: 1.0.6
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
@@ -62,59 +62,83 @@ The CSV currently intended to download has the following columns:
     - total_stock
     
 Usage:
-    TODO: This part and all below
-    $ python rearrange.py [-f <filepath>] [options]
+    The script is capable of running without any argument provided. All behavorial
+    variables will be reset to default.
+    
+    $ python3 suredone_download.py [options]
 
 Parameters/Options:
-    -h                      : usage help and examples
-    -f  | --file            : define input CSV path 
-    -o  | --output_file     : define output CSV path
-    -i  | --max_iterations  : define max iterations allowed on a single GUID
-    -v  | --verbose         : show program execution details (may increase execution time)
-    -l  | --log             : level of information in log file 
-                              (0 - nothing | 1 - over max iterations | 2 - all information)
-                              
+    -h  | --help            : View usage help and examples
+
+    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
+                                - Default: 15 seconds
+
+    -f  | --file            : Path to the configuration file containing API keys
+                                - Default in %APPDATA%/local/suredone.yaml on Window
+                                - Default in $HOME/suredone.yaml
+
+    -d  | --delimter        : Delimiter to be used as the separator in the CSV file saved by the script
+                                - Default is comma ','.
+
+    -o  | --output          : Path for the output file to be downloaded at
+                                - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+                                - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+
+    -v  | --verbose         : Show outputs in terminal as well as log file
+
+    -p  | --preserve        : Do not delete older files that start with 'SureDone_' in the download directory
+                                - This funciton is limited to default download locations only.
+                                - Defining custom output path will render this feature useless.
+
 Example:
-    $ python rearrange.py -f [source.csv]
-    $ python rearrange.py -file [source.csv]
+    $ python3 suredone_download.py
 
-    $ python rearrange.py -f [source.csv] -o [output.csv]
-    $ python rearrange.py -file [source.csv] --output_file [output.csv]
+    $ python3 suredone_download.py -f [config.yaml]
+    $ python3 suredone_download.py -file [config.yaml]
 
-    $ python rearrange.py -f [source.csv] -o [output.csv] -i 1000
-    $ python rearrange.py -file [source.csv] --output_file [output.csv] --max_iterations 1000
+    $ python3 suredone_download.py -f [config.yaml] -o [output.csv]
+    $ python3 suredone_download.py -file [config.yaml] --output_file [output.csv]
 
-Todo:
-    - Every exit must change to a safe exit where the log file is told why the script exited
+    $ python3 suredone_download.py -f [config.yaml] -o [output.csv] -v -p
+    $ python3 suredone_download.py -file [config.yaml] --output_file [output.csv] --verbose --preserve
 """
 
 # Help message
 HELP_MESSAGE = """
 Usage:
-    TODO: this part and all below
-    From all the arguments available, the input file path is necessary and the
-    script will not work if it is not provided.
+    The script is capable of running without any argument provided. All behavorial
+    variables will be reset to default.
     
-    $ python rearrange.py [-f <filepath>] [options]
+    $ python3 suredone_download.py [options]
 
 Parameters/Options:
-    -h                      : usage help and examples
-    -f  | --file            : define input CSV path 
-    -o  | --output_file     : define output CSV path
-    -i  | --max_iterations  : define max iterations allowed on a single GUID
-    -v  | --verbose         : show program execution details (may increase execution time)
-    -l  | --log             : level of information in log file 
-                              (0 - nothing | 1 - over max iterations | 2 - information of all)
+    -h  | --help            : View usage help and examples
+    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
+                                - Default: 15 seconds
+    -f  | --file            : Path to the configuration file containing API keys
+                                - Default in %APPDATA%/local/suredone.yaml on Window
+                                - Default in $HOME/suredone.yaml
+    -d  | --delimter        : Delimiter to be used as the separator in the CSV file saved by the script
+                                - Default is comma ','.
+    -o  | --output          : Path for the output file to be downloaded at
+                                - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+                                - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+    -v  | --verbose         : Show outputs in terminal as well as log file
+    -p  | --preserve        : Do not delete older files that start with 'SureDone_' in the download directory
+                                - This funciton is limited to default download locations only.
+                                - Defining custom output path will render this feature useless.
 
 Example:
-    $ python rearrange.py -f [source.csv]
-    $ python rearrange.py -file [source.csv]
+    $ python3 suredone_download.py
 
-    $ python rearrange.py -f [source.csv] -o [output.csv]
-    $ python rearrange.py -file [source.csv] --output_file [output.csv]
+    $ python3 suredone_download.py -f [config.yaml]
+    $ python3 suredone_download.py -file [config.yaml]
 
-    $ python rearrange.py -f [source.csv] -o [output.csv] -i 1000
-    $ python rearrange.py -file [source.csv] --output_file [output.csv] --max_iterations 1000
+    $ python3 suredone_download.py -f [config.yaml] -o [output.csv]
+    $ python3 suredone_download.py -file [config.yaml] --output_file [output.csv]
+
+    $ python3 suredone_download.py -f [config.yaml] -o [output.csv] -v -p
+    $ python3 suredone_download.py -file [config.yaml] --output_file [output.csv] --verbose --preserve
 """
 
 # Imports
@@ -433,7 +457,8 @@ def parseArgs(argv):
 
     for option, value in opts:
         if option == '-h':
-            # Not logging here since this is a command-line feature and must be printed on console
+            # Turn on verbose, print help message, and exit
+            LOGGER.verbose = True
             print (HELP_MESSAGE)
             sys.exit()
         elif option in ("-w", "--wait"):
