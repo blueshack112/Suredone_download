@@ -6,7 +6,7 @@ Suredone Download
 @contributor: Hassan Ahmed
 @contact: ahmed.hassan.112.ha@gmail.com
 @owner: Patrick Mahoney
-@version: 1.0.6
+@version: 1.0.7
 
 This module is created to use the Suredone API to create a custom CSV of store's 
 product and sales records, and get it downloaded
@@ -69,26 +69,20 @@ Usage:
 
 Parameters/Options:
     -h  | --help            : View usage help and examples
-
-    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
-                                - Default: 15 seconds
-
-    -f  | --file            : Path to the configuration file containing API keys
-                                - Default in %APPDATA%/local/suredone.yaml on Window
-                                - Default in $HOME/suredone.yaml
-
     -d  | --delimter        : Delimiter to be used as the separator in the CSV file saved by the script
-                                - Default is comma ','.
-
+        |                       - Default is comma ','.
+    -f  | --file            : Path to the configuration file containing API keys
+        |                       - Default in %APPDATA%/local/suredone.yaml on Window
+        |                       - Default in $HOME/suredone.yaml
     -o  | --output          : Path for the output file to be downloaded at
-                                - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
-                                - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
-
-    -v  | --verbose         : Show outputs in terminal as well as log file
-
+        |                       - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+        |                       - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
     -p  | --preserve        : Do not delete older files that start with 'SureDone_' in the download directory
-                                - This funciton is limited to default download locations only.
-                                - Defining custom output path will render this feature useless.
+        |                       - This funciton is limited to default download locations only.
+        |                       - Defining custom output path will render this feature useless.
+    -v  | --verbose         : Show outputs in terminal as well as log file
+    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
+        |                       - Default: 15 seconds
 
 Example:
     $ python3 suredone_download.py
@@ -113,20 +107,20 @@ Usage:
 
 Parameters/Options:
     -h  | --help            : View usage help and examples
-    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
-                                - Default: 15 seconds
-    -f  | --file            : Path to the configuration file containing API keys
-                                - Default in %APPDATA%/local/suredone.yaml on Window
-                                - Default in $HOME/suredone.yaml
     -d  | --delimter        : Delimiter to be used as the separator in the CSV file saved by the script
-                                - Default is comma ','.
+        |                       - Default is comma ','.
+    -f  | --file            : Path to the configuration file containing API keys
+        |                       - Default in %APPDATA%/local/suredone.yaml on Window
+        |                       - Default in $HOME/suredone.yaml
     -o  | --output          : Path for the output file to be downloaded at
-                                - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
-                                - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
-    -v  | --verbose         : Show outputs in terminal as well as log file
+        |                       - Default in %USERPROFILE%/Downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
+        |                       - Default in $HOME/downloads/SureDone_Downloads_yyyy_mm_dd-hh-mm-ss.csv
     -p  | --preserve        : Do not delete older files that start with 'SureDone_' in the download directory
-                                - This funciton is limited to default download locations only.
-                                - Defining custom output path will render this feature useless.
+        |                       - This funciton is limited to default download locations only.
+        |                       - Defining custom output path will render this feature useless.
+    -v  | --verbose         : Show outputs in terminal as well as log file
+    -w  | --wait            : Custom timeout for requests invoked by the script (specified in seconds)
+        |                       - Default: 15 seconds
 
 Example:
     $ python3 suredone_download.py
@@ -924,12 +918,9 @@ def purge(dir, pattern, inclusive=True):
         for name in files:
             path = os.path.join(root, name)
             if bool(regexObj.search(path)) == bool(inclusive):
-                os.remove(path)
-                count += 1
-                # for name in dirs:
-                #     path = os.path.join(root, name)
-                #     if len(os.listdir(path)) == 0:
-                #         os.rmdir(path)
+                if path.endswith('.csv'):
+                    os.remove(path)
+                    count += 1
     return count
 
 # Determine log file path
